@@ -1,0 +1,23 @@
+import math
+#wind turbine power output program, 10/13/2025
+
+
+#swept area of turbine
+s1 = .3 #m
+s2 = .15 #m
+A = s1*s2 #m^2
+
+#efficiency of tubrine type (assumed)
+C = .2
+
+#efficiency of electronics (also assumed)
+n = .6
+
+#wind speed (marina is around 3-5m/s)
+v = 5 #m/s
+v_cube = pow(v, 3)
+
+p = (0.5)*(1.225)*(A)*(C)*(n)*(v_cube)
+p = round(p, 3)
+
+print("Your turbine will output", p, "watts")
