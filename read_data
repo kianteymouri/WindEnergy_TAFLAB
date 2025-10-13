@@ -1,0 +1,80 @@
+import serial
+import time
+from datetime import datetime
+import os
+
+# --- CONFIGURATION ---
+# STEP 1: Find your Arduino's serial port name.
+#         - In the Arduino IDE, go to Tools > Port.
+#         - It will look like 'COM3' or 'COM4' on Windows.
+#         - It will look like '/dev/tty.usbmodem...' or '/dev/ttyACM0' on Mac/Linux.
+#                -can also type ls /dev/tty.*  in mac terminal
+# STEP 2: Change the SERIAL_PORT variable below to match what you found.
+SERIAL_PORT = '/dev/tty.usbmodemF412FA9B6F3C2' #CHANGE ACCORDINGLY
+
+# STEP 3: Make sure this baud rate matches the 'Serial.begin(115200)' in your Arduino code.
+BAUD_RATE = 115200
+
+# --- SCRIPT START ---
+
+# Generate a unique filename using the current date and time
+timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
+FILENAME = f'{timestamp}_data.csv'
+
+
+print(f"Connecting to Arduino on port: {SERIAL_PORT}")
+print(f"Data will be saved to: {FILENAME}")
+print("Press Ctrl+C to stop logging.")
+
+try:
+    # 1. CONNECT: Open the serial port
+    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+    
+    # Wait a moment for the Arduino to reset
+    time.sleep(2) 
+    
+    # --- MAJOR CHANGE: Open the file only ONCE ---
+    # We open the file here and perform all operations inside this 'with' block.
+    # This avoids erasing the file's contents.
+    with open(FILENAME, 'w', newline='') as f:
+        # Write the header defined in this script
+        f.write("Timestamp,Load Voltage (V),Current (mA),Power (mW)\n")
+        f.flush() # Ensure the header is written immediately
+        print("CSV file created and header written.")
+
+        # 2. LISTEN & LOG: Enter the main loop to continuously read and save data
+        while True:
+            try:
+                line = ser.readline().decode('utf-8').strip()
+                if line: # If we received a non-empty line
+                    # Optional: You can filter out the header from the Arduino if you don't need it
+                    if line.startswith("Timestamp"):
+                        print(f"Arduino header received: '{line}'. Ignoring.")
+                        continue # Skip to the next line
+
+                    print(line)               # Print the data to the console in real-time
+                    f.write(line + '\n')      # Write the data to the CSV file
+                    f.flush()                 # ADDED: Force write to disk immediately
+
+            except UnicodeDecodeError:
+                print("Warning: Skipping a line that couldn't be decoded.")
+
+# --- ERROR HANDLING AND CLEANUP ---
+except serial.SerialException:
+    print(f"--- ERROR ---")
+    print(f"Could not open serial port '{SERIAL_PORT}'.")
+    print("Please check:")
+    print("  1. Is the Arduino connected?")
+    print("  2. Is the SERIAL_PORT variable set correctly in this script?")
+    print("  3. Is the Arduino IDE's Serial Monitor CLOSED?")
+
+except KeyboardInterrupt:
+    # This block runs when you press Ctrl+C to stop the script
+    print("\nLogging stopped by user.")
+
+finally:
+    # This block runs no matter what, ensuring the port is closed
+    if 'ser' in locals() and ser.is_open:
+        ser.close()
+        print("Serial port closed.")
+    print(f"Data logging complete. Check the file: {FILENAME}")
