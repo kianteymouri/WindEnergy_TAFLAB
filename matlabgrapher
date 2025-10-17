@@ -1,0 +1,108 @@
+%% Turbine Test Data Plotter (Final Version with Power Fallback)
+% Reads turbine test CSV and plots Voltage, Current, and Power vs Time
+% with smart y-axis scaling and fallback flat line if no power data.
+
+clc; clear; close all;
+
+%% --- Step 1: Load the data ---
+filename = '/Users/kteyiphone/Desktop/4.3m_s_3blade.csv';  % change if needed
+data = readtable(filename);
+
+% Show first few rows for verification
+disp(head(data));
+
+%% --- Step 2: Identify columns ---
+time    = data{:,1};   % assumes 1st column = timestamp or index
+voltage = data{:,2};   % 2nd column = voltage (V)
+current = data{:,3};   % 3rd column = current (mA)
+
+% --- Handle power column safely ---
+if width(data) >= 4
+    power = data{:,4};
+else
+    warning('No power column found — using flat line placeholder.');
+    power = zeros(size(time));  % create flat line if missing
+end
+
+% If power column exists but is all NaN or zeros, also make a flat line
+if all(isnan(power)) || all(power == 0)
+    warning('Power data invalid — replacing with flat line.');
+    power = ones(size(time)) * 0.001; % very small constant line
+end
+
+% Convert timestamps if text
+if iscell(time)
+    try
+        time = datetime(time, 'InputFormat','yyyy-MM-dd HH:mm:ss');
+    catch
+        time = (1:height(data))'; % fallback to index
+    end
+end
+
+% Define time range for consistent x-axis
+t_min = min(time);
+t_max = max(time);
+
+%% --- Step 3: Plot with smart auto-scaling ---
+figure('Name','Turbine Test Results','Color','w');
+buffer_low  = 0.05;   % 5% below min value
+buffer_high = 0.10;   % 10% above max value
+
+%% --- Voltage ---
+subplot(3,1,1)
+plot(time, voltage, 'b', 'LineWidth', 1.2);
+ylabel('Voltage (V)');
+title('Turbine Voltage vs Time');
+grid on;
+
+minV = min(voltage, [], 'omitnan');
+maxV = max(voltage, [], 'omitnan');
+ymin = minV - abs(minV)*buffer_low;
+ymax = maxV + abs(maxV)*buffer_high;
+if ymin < 0, ymin = 0; end
+ylim([ymin, ymax]);
+xlim([t_min, t_max]);
+
+%% --- Current ---
+subplot(3,1,2)
+plot(time, current, 'r', 'LineWidth', 1.2);
+ylabel('Current (mA)');
+title('Turbine Current vs Time');
+grid on;
+
+minI = min(current, [], 'omitnan');
+maxI = max(current, [], 'omitnan');
+ymin = minI - abs(minI)*buffer_low;
+ymax = maxI + abs(maxI)*buffer_high;
+if ymin < 0, ymin = 0; end
+ylim([ymin, ymax]);
+xlim([t_min, t_max]);
+
+%% --- Power ---
+subplot(3,1,3)
+plot(time, power, 'k', 'LineWidth', 1.2);
+xlabel('Time');
+ylabel('Power (mW)');
+title('Turbine Power Output vs Time');
+grid on;
+
+minP = min(power, [], 'omitnan');
+maxP = max(power, [], 'omitnan');
+ymin = minP - abs(minP)*buffer_low;
+ymax = maxP + abs(maxP)*buffer_high;
+if ymin < 0, ymin = 0; end
+ylim([ymin, ymax]);
+xlim([t_min, t_max]);
+
+% Link x-axes for synchronized zoom/pan
+linkaxes(findall(gcf,'Type','axes'),'x');
+
+%% --- Step 4: Summary Statistics ---
+fprintf('\n===== Summary Statistics =====\n');
+fprintf('Average Voltage: %.4f V\n', mean(voltage, 'omitnan'));
+fprintf('Average Current: %.4f mA\n', mean(current, 'omitnan'));
+fprintf('Average Power:   %.4f mW\n', mean(power, 'omitnan'));
+fprintf('Peak Voltage:    %.4f V\n', maxV);
+fprintf('Peak Current:    %.4f mA\n', maxI);
+fprintf('Peak Power:      %.4f mW\n', maxP);
+fprintf('==============================\n');
