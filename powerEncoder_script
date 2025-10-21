@@ -1,0 +1,137 @@
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+#include <Adafruit_AS5600.h>
+
+
+
+Adafruit_INA219 ina219;
+Adafruit_AS5600 as5600;
+
+
+
+void setup(void) 
+{ 
+  Serial.begin(115200);
+  while (!Serial) {
+      // will pause Zero, Leonardo, etc until serial console opens
+      delay(1);
+  }  
+  // Initialize the INA219 (Power Sensor)
+  // By default the initialization will use the largest range (32V, 2A).  However
+  // you can call a setCalibration function to change this range (see comments).
+  if (! ina219.begin()) {
+    Serial.println("Failed to find INA219 chip");
+    while (1) 
+      delay(10);
+  }
+  // Initialize the AS5600 (Rotational Speed Sensor)
+  if (!as5600.begin()) {
+    Serial.println("Failed to find AS5600 sensor");
+    while (1)
+      delay(10);
+  }
+
+  // To use a slightly lower 32V, 1A range (higher precision on amps):
+  //ina219.setCalibration_32V_1A();
+  // Or to use a lower 16V, 400mA range (higher precision on volts and amps):
+  //ina219.setCalibration_16V_400mA();
+
+  as5600.enableWatchdog(false);
+  // Normal (high) power mode
+  as5600.setPowerMode(AS5600_POWER_MODE_NOM);
+  // No Hysteresis
+  as5600.setHysteresis(AS5600_HYSTERESIS_OFF);
+
+  // analog output
+  as5600.setOutputStage(AS5600_OUTPUT_STAGE_ANALOG_FULL);
+
+  // OR can do pwm!
+  // as5600.setOutputStage(AS5600_OUTPUT_STAGE_DIGITAL_PWM);
+  // as5600.setPWMFreq(AS5600_PWM_FREQ_920HZ);
+
+  // setup filters
+  as5600.setSlowFilter(AS5600_SLOW_FILTER_16X);
+  as5600.setFastFilterThresh(AS5600_FAST_FILTER_THRESH_SLOW_ONLY);
+
+  // Reset position settings to defaults
+  as5600.setZPosition(0);
+  as5600.setMPosition(4095);
+  as5600.setMaxAngle(4095);
+
+}
+
+void loop(void) 
+{
+  float shuntvoltage = 0;
+  float busvoltage = 0;
+  float current_mA = 0;
+  float loadvoltage = 0;
+  float power_mW = 0;
+  float calculated_resistance = 0;
+
+  float rawAngle = 0; //degrees
+  float angle = 0; //degrees
+  float prevAngle = 0; //degrees
+  float diff = 0; //degrees
+  uint16_t rate = 50; //ms
+
+  while (1) {
+    shuntvoltage = ina219.getShuntVoltage_mV();
+    busvoltage = ina219.getBusVoltage_V();
+    current_mA = ina219.getCurrent_mA();  
+    // power_mW = ina219.getPower_mW();
+    loadvoltage = busvoltage + (shuntvoltage / 1000);
+    power_mW = current_mA * loadvoltage;
+    calculated_resistance = loadvoltage / (current_mA / 1000);
+
+    prevAngle = angle; 
+    rawAngle = as5600.getRawAngle() * 0.087890625;
+    angle =  as5600.getAngle() * 0.087890625;
+    diff = angle - prevAngle;
+    if (diff < -180){
+      diff += 360;
+    } else if (diff > 180){
+      diff -= 360;
+    }
+    
+    // In loop():
+    String dataString = "";
+    dataString += String(millis()); // The timestamp
+    dataString += ",";
+    
+    dataString += String(power_mW); // Power in mW
+    dataString += ",";
+    
+    if (! as5600.isMagnetDetected()) {
+      dataString += "NO_MAGNET";
+    } else {
+      dataString += String(abs(diff / rate / 6 * 1000));
+    }
+    dataString += ",";
+    
+
+
+    // // Check status conditions
+    if (as5600.isAGCminGainOverflow()) {
+      dataString += String("STRONG_MAGNET");
+    } else if (as5600.isAGCmaxGainOverflow()) {
+      dataString += String("WEAK_MAGNET");
+    } else {
+      dataString += String("NO_ERROR");
+    }
+
+    // ...and so on for all your data.
+    Serial.println(dataString);
+
+    // Serial.print(loadvoltage);
+    // Serial.print(",");
+    // Serial.print(current_mA);
+    // Serial.print(",");
+    // Serial.print(power_mW);
+    // Serial.println();
+
+    delay(rate);
+  }
+}
+
+
