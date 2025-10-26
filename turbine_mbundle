@@ -1,0 +1,162 @@
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+
+// --- INA219 setup ---
+Adafruit_INA219 ina219;
+
+// --- AS5600 setup ---
+#define AS5600_ADDR 0x36
+#define RAW_ANGLE_REGISTER 0x0C
+
+// --- Configuration ---
+const unsigned long logInterval = 1000;   // Log data every 1 second
+const unsigned long sampleInterval = 100; // Internal AS5600 refresh every 100 ms (10 Hz)
+const int maxSamples = 500;               // limit stored samples (depends on RAM)
+
+// --- Data storage arrays ---
+float voltage[maxSamples];
+float current[maxSamples];
+float power[maxSamples];
+float rotationsPerMinute[maxSamples];
+unsigned long timestamps[maxSamples];
+int sampleCount = 0;
+
+// --- Variables for rotation speed calculation ---
+float lastAngle = 0.0;
+unsigned long lastAngleTime = 0;
+
+// --- For averaging fast samples ---
+float rpmAccumulator = 0.0;
+int rpmSamples = 0;
+unsigned long lastLogTime = 0;
+
+void setup() {
+  Serial.begin(9600);
+  while (!Serial) { delay(10); }
+
+  Serial.println("Wind Turbine Data Logger (Voltage, Current, Power, Rotational Speed)");
+  Serial.println("Sampling AS5600 @10 Hz; Logging once per second.\nPress 'q' + Enter to stop and export data.\n");
+
+  Wire.begin();
+
+  if (!ina219.begin()) {
+    Serial.println("Error: INA219 not found. Check wiring!");
+    while (1);
+  }
+
+  ina219.setCalibration_32V_1A();
+
+  lastAngle = readAS5600Angle();
+  lastAngleTime = millis();
+  lastLogTime = millis();
+}
+
+void loop() {
+  // Quit when user types q
+  if (Serial.available()) {
+    char input = Serial.read();
+    if (input == 'q' || input == 'Q') {
+      exportData();
+      while (true);
+    }
+  }
+
+  unsigned long now = millis();
+
+  // --- High-rate RPM sampling ---
+  if (now - lastAngleTime >= sampleInterval) {
+    float newAngle = readAS5600Angle();       // degrees (0–360)
+    float deltaTime = (now - lastAngleTime) / 1000.0; // seconds
+    float deltaAngle = newAngle - lastAngle;
+
+    // Handle rollover
+    if (deltaAngle < -180) deltaAngle += 360;
+    else if (deltaAngle > 180) deltaAngle -= 360;
+
+    float rotationsPerMin = 0.0;
+    if (deltaTime > 0) rotationsPerMin = (deltaAngle / 360.0) * 60.0 / deltaTime;
+
+    rpmAccumulator += abs(rotationsPerMin);
+    rpmSamples++;
+
+    lastAngle = newAngle;
+    lastAngleTime = now;
+  }
+
+  // --- Once per second, log averaged values ---
+  if (now - lastLogTime >= logInterval && sampleCount < maxSamples) {
+    // Electrical measurements
+    float busVoltage_V = ina219.getBusVoltage_V();
+    float shuntVoltage_mV = ina219.getShuntVoltage_mV();
+    float current_mA = 0.0;
+
+    // Average current a bit for smoother readings
+    for (int i = 0; i < 5; i++) {
+      current_mA += ina219.getCurrent_mA();
+      delay(2);
+    }
+    current_mA /= 5.0;
+
+    float power_mW = ina219.getPower_mW();
+    float loadVoltage_V = busVoltage_V + (shuntVoltage_mV / 1000.0);
+
+    // Average RPM from last 10 samples
+    float avgRPM = (rpmSamples > 0) ? (rpmAccumulator / rpmSamples) : 0.0;
+    rpmAccumulator = 0.0;
+    rpmSamples = 0;
+
+    voltage[sampleCount] = loadVoltage_V;
+    current[sampleCount] = current_mA / 1000.0; // convert to A
+    power[sampleCount]   = power_mW / 1000.0;   // convert to W
+    rotationsPerMinute[sampleCount] = avgRPM;
+    timestamps[sampleCount] = now;
+
+    Serial.print("Sample ");
+    Serial.print(sampleCount + 1);
+    Serial.print(": ");
+    Serial.print(loadVoltage_V, 3); Serial.print(" V | ");
+    Serial.print(current_mA, 1); Serial.print(" mA | ");
+    Serial.print(power_mW / 1000.0, 3); Serial.print(" W | ");
+    Serial.print(avgRPM, 1); Serial.println(" rotations/min");
+
+    sampleCount++;
+    lastLogTime = now;
+  }
+}
+
+// --- Function to read raw angle (0–360 deg) from AS5600 ---
+float readAS5600Angle() {
+  Wire.beginTransmission(AS5600_ADDR);
+  Wire.write(RAW_ANGLE_REGISTER);
+  Wire.endTransmission();
+  Wire.requestFrom(AS5600_ADDR, 2);
+
+  if (Wire.available() == 2) {
+    int highByte = Wire.read();
+    int lowByte = Wire.read();
+    int rawAngle = (highByte << 8) | lowByte;
+    return (rawAngle * 360.0) / 4096.0; // 12-bit → degrees
+  }
+  return lastAngle;
+}
+
+// --- Export all data in CSV format ---
+void exportData() {
+  Serial.println("\n--- EXPORTING DATA ---");
+  Serial.println("time_ms,voltage_V,current_A,power_W,rotations_per_min");
+
+  for (int i = 0; i < sampleCount; i++) {
+    Serial.print(timestamps[i]);
+    Serial.print(",");
+    Serial.print(voltage[i], 3);
+    Serial.print(",");
+    Serial.print(current[i], 4);
+    Serial.print(",");
+    Serial.print(power[i], 4);
+    Serial.print(",");
+    Serial.println(rotationsPerMinute[i], 1);
+  }
+
+  Serial.println("\nExport complete!");
+  Serial.println("Copy everything above and paste into data.csv");
+}
