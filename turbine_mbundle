@@ -84,6 +84,7 @@ void loop() {
   }
 
   // --- Once per second, log averaged values ---
+  // --- Once per second, log averaged values ---
   if (now - lastLogTime >= logInterval && sampleCount < maxSamples) {
     // Electrical measurements
     float busVoltage_V = ina219.getBusVoltage_V();
@@ -111,17 +112,20 @@ void loop() {
     rotationsPerMinute[sampleCount] = avgRPM;
     timestamps[sampleCount] = now;
 
-    Serial.print("Sample ");
-    Serial.print(sampleCount + 1);
-    Serial.print(": ");
+    // ---------- CHANGED PRINT SECTION ----------
+    Serial.print("Time: ");
+    Serial.print(now);
+    Serial.print(" ms | ");
     Serial.print(loadVoltage_V, 3); Serial.print(" V | ");
     Serial.print(current_mA, 1); Serial.print(" mA | ");
     Serial.print(power_mW / 1000.0, 3); Serial.print(" W | ");
     Serial.print(avgRPM, 1); Serial.println(" rotations/min");
+    // -------------------------------------------
 
     sampleCount++;
     lastLogTime = now;
   }
+
 }
 
 // --- Function to read raw angle (0–360 deg) from AS5600 ---
